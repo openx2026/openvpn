@@ -50,8 +50,16 @@ object Labels {
     fun statusLabel(status: String): String = when (status) {
         "PENDING" -> "待支付"
         "PAID" -> "已支付"
+        "CANCELLED" -> "已取消"
         "EXPIRED" -> "已过期"
         else -> status
+    }
+
+    fun statusColor(status: String): Int = when (status) {
+        "PENDING" -> android.graphics.Color.parseColor("#F59E0B")
+        "PAID" -> android.graphics.Color.parseColor("#10B981")
+        "CANCELLED" -> android.graphics.Color.parseColor("#EF4444")
+        else -> android.graphics.Color.parseColor("#9CA3AF")
     }
 
     fun avatarLetters(username: String): String {
@@ -76,6 +84,12 @@ object Labels {
         if (m.status == "INACTIVE") return "—"
         val exp = m.expiredAt?.trim().orEmpty()
         if (exp.isEmpty()) return "无限期"
+        return DateFormats.formatLocal(exp)
+    }
+
+    fun formatSubscriptionFeedExpiresAt(expiresAt: String?): String {
+        val exp = expiresAt?.trim().orEmpty()
+        if (exp.isEmpty()) return "—"
         return DateFormats.formatLocal(exp)
     }
 

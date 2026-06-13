@@ -7,6 +7,7 @@ import com.google.gson.reflect.TypeToken
 import com.openvpn.client.BuildConfig
 import com.openvpn.client.OpenVpnApplication
 import com.openvpn.client.R
+import com.openvpn.client.util.RegisterAppSignature
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
@@ -42,11 +43,62 @@ class PortalApi(
 
     private val baseUrl: String = BuildConfig.API_BASE_URL.trimEnd('/')
 
-    suspend fun register(username: String, password: String, inviteCode: String? = null): AuthResponse =
-        post("/auth/register", RegisterRequest(username, password, inviteCode?.trim()?.ifEmpty { null }))
+    suspend fun register(
+        username: String,
+        password: String,
+        inviteCode: String? = null,
+        deviceId: String? = null,
+    ): AuthResponse {
+        val normalizedUsername = username.trim().lowercase()
+        val normalizedDeviceId = deviceId?.trim()?.lowercase().orEmpty()
+        val secret = requireAppSecret()
+        val body = RegisterRequest(
+            username,
+            password,
+            inviteCode?.trim()?.ifEmpty { null },
+            normalizedDeviceId.ifEmpty { null },
+        )
+        val json = gson.toJson(body)
+        val timestampSec = System.currentTimeMillis() / 1000
+        val signature = RegisterAppSignature.sign(
+            secret,
+            timestampSec,
+            normalizedUsername,
+            normalizedDeviceId,
+        )
+        return request(
+            method = "POST",
+            path = "/auth/register",
+            body = json,
+            token = null,
+            extraHeaders = registerSignatureHeaders(timestampSec, signature),
+        )
+    }
 
-    suspend fun login(username: String, password: String): AuthResponse =
-        post("/auth/login", LoginRequest(username, password))
+    suspend fun login(username: String, password: String, deviceId: String? = null): AuthResponse {
+        val normalizedUsername = username.trim().lowercase()
+        val normalizedDeviceId = deviceId?.trim()?.lowercase().orEmpty()
+        if (normalizedDeviceId.isEmpty()) {
+            throw ApiException(0, appContext.getString(R.string.register_device_unavailable))
+        }
+        val secret = requireAppSecret()
+        val body = LoginRequest(username, password, normalizedDeviceId)
+        val json = gson.toJson(body)
+        val timestampSec = System.currentTimeMillis() / 1000
+        val signature = RegisterAppSignature.sign(
+            secret,
+            timestampSec,
+            normalizedUsername,
+            normalizedDeviceId,
+        )
+        return request(
+            method = "POST",
+            path = "/auth/login",
+            body = json,
+            token = null,
+            extraHeaders = registerSignatureHeaders(timestampSec, signature),
+        )
+    }
 
     suspend fun profile(token: String): UserProfile = get("/auth/profile", token)
 
@@ -74,6 +126,9 @@ class PortalApi(
     suspend fun createOrder(token: String, planId: Long, chainId: Long): UserOrder =
         post("/membership/order", CreateOrderRequest(planId, chainId), token)
 
+    suspend fun cancelOrder(token: String, orderId: Long): UserOrder =
+        request("POST", "/membership/order/$orderId/cancel", body = null, token = token)
+
     suspend fun membership(token: String): UserMembershipSnapshot = get("/membership", token)
 
     suspend fun subscriptionFeedUrl(token: String): SubscriptionFeedResponse =
@@ -87,11 +142,36 @@ class PortalApi(
         return request("POST", path, json, token)
     }
 
-    private suspend inline fun <reified T> request(method: String, path: String, body: String?, token: String?): T {
+    private fun requireAppSecret(): String {
+        val secret = BuildConfig.APP_SECRET.trim()
+            .removeSurrounding("\"")
+            .removeSurrounding("'")
+        if (secret.isEmpty()) {
+            throw ApiException(0, appContext.getString(R.string.register_signature_not_configured))
+        }
+        return secret
+    }
+
+    private fun registerSignatureHeaders(timestampSec: Long, signature: String): Map<String, String> =
+        mapOf(
+            "X-Register-Timestamp" to timestampSec.toString(),
+            "X-Register-Signature" to signature,
+        )
+
+    private suspend inline fun <reified T> request(
+        method: String,
+        path: String,
+        body: String?,
+        token: String?,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): T {
         val url = "$baseUrl$path"
         val builder = Request.Builder().url(url)
         if (token != null) {
             builder.header("Authorization", "Bearer $token")
+        }
+        for ((name, value) in extraHeaders) {
+            builder.header(name, value)
         }
         when (method) {
             "GET" -> builder.get()
@@ -153,6 +233,20 @@ class PortalApi(
                 appContext.getString(R.string.api_validation_username)
             lower.contains("user not found") ->
                 appContext.getString(R.string.api_user_not_found)
+            lower.contains("设备已注册") || lower.contains("设备已绑定其他账号") ->
+                appContext.getString(
+                    if (lower.contains("无法注册")) {
+                        R.string.api_device_already_registered
+                    } else {
+                        R.string.api_device_bound_other_account
+                    },
+                )
+            lower.contains("已绑定3台设备") || lower.contains("已绑定三台设备") ->
+                appContext.getString(R.string.api_device_limit_reached)
+            lower.contains("设备与注册设备不一致") || lower.contains("已绑定设备") ->
+                trimmed
+            lower.contains("注册签名") || lower.contains("登录签名") ->
+                appContext.getString(R.string.api_register_signature_invalid)
             lower == "unauthorized" || lower.contains("invalid credentials") ->
                 appContext.getString(R.string.session_expired)
             else -> httpStatusMessage(code)

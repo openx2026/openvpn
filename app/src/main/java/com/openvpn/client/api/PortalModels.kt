@@ -61,8 +61,18 @@ data class UserOrder(
     @SerializedName("chainId") val chainId: Long? = null,
     @SerializedName("toAddress") val toAddress: String,
     val status: String,
-    @SerializedName("subscriptionPlan") val subscriptionPlan: OrderPlanSummary,
+    @SerializedName("subscriptionPlan") val subscriptionPlan: OrderPlanSummary? = null,
 )
+
+fun UserOrder.planDisplayName(): String =
+    subscriptionPlan?.name?.takeIf { it.isNotBlank() }
+        ?: "套餐 #$subscriptionPlanId"
+
+fun List<UserOrder>.sortedByCreatedAtDesc(): List<UserOrder> =
+    sortedByDescending { order ->
+        runCatching { java.time.Instant.parse(order.createdAt.trim()).toEpochMilli() }
+            .getOrDefault(0L)
+    }
 
 data class UserMembershipInfo(
     @SerializedName("planTier") val planTier: String,
@@ -79,6 +89,7 @@ data class UserMembershipSnapshot(
 
 data class SubscriptionFeedResponse(
     @SerializedName("feedUrl") val feedUrl: String? = null,
+    @SerializedName("expiresAt") val expiresAt: String? = null,
 )
 
 data class CreateOrderRequest(
@@ -90,11 +101,13 @@ data class RegisterRequest(
     val username: String,
     val password: String,
     @SerializedName("inviteCode") val inviteCode: String? = null,
+    @SerializedName("deviceId") val deviceId: String? = null,
 )
 
 data class LoginRequest(
     val username: String,
     val password: String,
+    @SerializedName("deviceId") val deviceId: String? = null,
 )
 
 data class ChangePasswordRequest(

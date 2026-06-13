@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     style="@style/PortalCard"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="8dp"
+    android:layout_marginBottom="10dp"
     android:clickable="true"
     android:focusable="true">
 
@@ -11,7 +12,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="14dp">
+        android:paddingHorizontal="16dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="12dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -24,6 +27,8 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
                 android:textColor="@color/portal_text_primary"
                 android:textSize="15sp"
                 android:textStyle="bold" />
@@ -32,26 +37,61 @@
                 android:id="@+id/order_status"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:paddingHorizontal="8dp"
-                android:paddingVertical="2dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_order_status_pill"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="4dp"
                 android:textColor="@android:color/white"
-                android:textSize="11sp" />
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/order_chevron"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:layout_marginStart="4dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_chevron_right"
+                app:tint="@color/portal_text_secondary" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/order_meta1"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:textColor="@color/portal_text_secondary"
-            android:textSize="13sp" />
+            android:layout_marginTop="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/order_meta2"
+            <TextView
+                android:id="@+id/order_plan_summary"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/portal_text_primary"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/order_meta_right"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:gravity="end"
+                android:textColor="@color/portal_text_secondary"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/cancel_order_button"
+            style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:textColor="@color/portal_text_secondary"
-            android:textSize="12sp" />
+            android:layout_marginTop="12dp"
+            android:minHeight="40dp"
+            android:text="@string/cancel_order"
+            android:textSize="13sp"
+            android:visibility="gone"
+            app:strokeColor="@color/portal_text_secondary" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

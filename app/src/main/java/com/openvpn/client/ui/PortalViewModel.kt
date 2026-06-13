@@ -12,10 +12,14 @@ import com.openvpn.client.api.PortalApi
 import com.openvpn.client.api.UserMembershipInfo
 import com.openvpn.client.api.UserMembershipSnapshot
 import com.openvpn.client.api.UserOrder
+import com.openvpn.client.api.sortedByCreatedAtDesc
 import com.openvpn.client.api.UserProfile
 import com.openvpn.client.bridge.VpnEngineBridge
 import com.v2ray.ang.AppConfig
 import com.openvpn.client.data.SessionStore
+import com.openvpn.client.data.SubscriptionBodyCache
+import com.openvpn.client.data.SubscriptionFeedStore
+import com.openvpn.client.util.DeviceIdentity
 import com.openvpn.client.util.Labels
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,6 +34,8 @@ enum class PortalTab { HOME, SHOP, ORDERS, MINE }
 class PortalViewModel(app: Application) : AndroidViewModel(app) {
     private val api = PortalApi()
     private val sessionStore = SessionStore(app)
+    private val subscriptionFeedStore = SubscriptionFeedStore(app)
+    private val subscriptionBodyCache = SubscriptionBodyCache(app)
 
     private val _token = MutableLiveData(sessionStore.token)
     val token: LiveData<String?> = _token
@@ -49,6 +55,15 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
     private val _orders = MutableLiveData<List<UserOrder>>(emptyList())
     val orders: LiveData<List<UserOrder>> = _orders
 
+    private val _ordersLoading = MutableLiveData(false)
+    val ordersLoading: LiveData<Boolean> = _ordersLoading
+
+    private val _ordersLoadError = MutableLiveData<String?>(null)
+    val ordersLoadError: LiveData<String?> = _ordersLoadError
+
+    private val _cancellingOrderId = MutableLiveData<Long?>(null)
+    val cancellingOrderId: LiveData<Long?> = _cancellingOrderId
+
     private val _profile = MutableLiveData<UserProfile?>(null)
     val profile: LiveData<UserProfile?> = _profile
 
@@ -57,6 +72,9 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _subscriptionUrl = MutableLiveData<String?>(null)
     val subscriptionUrl: LiveData<String?> = _subscriptionUrl
+
+    private val _subscriptionFeedExpiresAt = MutableLiveData<String?>(null)
+    val subscriptionFeedExpiresAt: LiveData<String?> = _subscriptionFeedExpiresAt
 
     private val _loading = MutableLiveData(false)
     val loading: LiveData<Boolean> = _loading
@@ -85,13 +103,21 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
     private var vpnDelayPollJob: Job? = null
     private var delayMeasureJob: Job? = null
     private var ordersRefreshJob: Job? = null
+    private var mineRefreshJob: Job? = null
+    private var catalogJob: Job? = null
+    private var shopCatalogJob: Job? = null
+    private var pendingOrderPollJob: Job? = null
+    private var ordersCacheLoaded = false
 
     val pendingOrder: UserOrder?
         get() = _orders.value?.firstOrNull { it.status == "PENDING" }
 
     init {
+        hydrateSubscriptionFeedFromCache()
+        loadCatalog()
         if (_token.value != null) {
-            refreshPortalData()
+            refreshMine()
+            loadOrdersCache() // 冷启动已登录：全量拉一次订单列表
         }
     }
 
@@ -141,7 +167,15 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
             _loading.value = true
             _error.value = null
             try {
-                val res = withContext(Dispatchers.IO) { api.login(username, password) }
+                val deviceId = DeviceIdentity.registrationDeviceId(getApplication())
+                if (deviceId == null) {
+                    _error.value =
+                        getApplication<Application>().getString(com.openvpn.client.R.string.register_device_unavailable)
+                    return@launch
+                }
+                val res = withContext(Dispatchers.IO) {
+                    api.login(username, password, deviceId)
+                }
                 persistToken(res.accessToken)
                 _toastMessage.value = "登录成功。"
                 onSuccess()
@@ -160,7 +194,15 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
             _loading.value = true
             _error.value = null
             try {
-                val res = withContext(Dispatchers.IO) { api.register(username, password, inviteCode) }
+                val deviceId = DeviceIdentity.registrationDeviceId(getApplication())
+                if (deviceId == null) {
+                    _error.value =
+                        getApplication<Application>().getString(com.openvpn.client.R.string.register_device_unavailable)
+                    return@launch
+                }
+                val res = withContext(Dispatchers.IO) {
+                    api.register(username, password, inviteCode, deviceId)
+                }
                 persistToken(res.accessToken)
                 _toastMessage.value = "注册成功，已自动登录。"
                 onSuccess()
@@ -202,19 +244,27 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
 
     fun logout() {
         sessionStore.clear()
+        subscriptionFeedStore.clear()
+        subscriptionBodyCache.clear()
         _token.value = null
         _profile.value = null
         _membership.value = null
         stopVpnDelayPolling()
         _subscriptionUrl.value = null
+        _subscriptionFeedExpiresAt.value = null
         _orders.value = emptyList()
+        ordersCacheLoaded = false
+        pendingOrderPollJob?.cancel()
+        pendingOrderPollJob = null
+        _ordersLoadError.value = null
         _chains.value = emptyList()
         _currentTab.value = PortalTab.HOME
         loadCatalog()
     }
 
     fun loadCatalog() {
-        viewModelScope.launch {
+        if (catalogJob?.isActive == true) return
+        catalogJob = viewModelScope.launch {
             _loading.value = true
             _error.value = null
             try {
@@ -229,12 +279,18 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun loadShopCatalog() {
-        viewModelScope.launch {
+        if (shopCatalogJob?.isActive == true) return
+        shopCatalogJob = viewModelScope.launch {
             _loading.value = true
             _error.value = null
             try {
                 val (p, c) = withContext(Dispatchers.IO) {
-                    api.catalogPlans() to api.catalogChains()
+                    val plans = if (_plans.value.isNullOrEmpty()) {
+                        api.catalogPlans()
+                    } else {
+                        _plans.value!!
+                    }
+                    plans to api.catalogChains()
                 }
                 _plans.value = p
                 _chains.value = c
@@ -246,8 +302,13 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun refreshOrders(onDone: (() -> Unit)? = null) {
+    /** 全量拉取订单列表。默认仅冷启动已登录 / 登录成功后拉一次；force=true 时强制刷新（订单页重试） */
+    fun loadOrdersCache(force: Boolean = false, onDone: (() -> Unit)? = null) {
         val t = _token.value ?: return
+        if (!force && ordersCacheLoaded) {
+            onDone?.invoke()
+            return
+        }
         ordersRefreshJob?.let { existing ->
             if (existing.isActive) {
                 onDone?.let { cb -> existing.invokeOnCompletion { cb() } }
@@ -255,31 +316,53 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         ordersRefreshJob = viewModelScope.launch {
-            _loading.value = true
-            _error.value = null
+            _ordersLoading.value = true
+            if (force) _ordersLoadError.value = null
             try {
                 val list = api.orders(t)
-                _orders.value = list
+                _orders.value = list.sortedByCreatedAtDesc()
+                ordersCacheLoaded = true
+                _ordersLoadError.value = null
+                syncPendingOrderPolling()
             } catch (e: ApiException) {
                 if (handleUnauthorized(e)) return@launch
-                _error.value = e.message
-                _orders.value = emptyList()
+                _ordersLoadError.value = e.message
+                if (!ordersCacheLoaded) {
+                    _orders.value = emptyList()
+                }
             } catch (e: Exception) {
-                _error.value = e.message
+                _ordersLoadError.value = e.message
+                if (!ordersCacheLoaded) {
+                    _orders.value = emptyList()
+                }
             } finally {
-                _loading.value = false
+                _ordersLoading.value = false
                 onDone?.invoke()
             }
         }
     }
 
+    fun refreshOrders(onDone: (() -> Unit)? = null) {
+        loadOrdersCache(force = true, onDone = onDone)
+    }
+
     fun loadOrderDetail(orderId: Long, onResult: (UserOrder?) -> Unit) {
+        val cached = findOrder(orderId)
+        if (cached != null) {
+            onResult(cached)
+            return
+        }
+        refreshOrderDetailFromApi(orderId, onResult)
+    }
+
+    /** 强制从接口拉取订单详情并写入本地列表（待支付轮询用） */
+    fun refreshOrderDetailFromApi(orderId: Long, onResult: (UserOrder?) -> Unit) {
         val t = _token.value ?: return
         viewModelScope.launch {
             try {
                 val row = withContext(Dispatchers.IO) { api.order(t, orderId) }
                 if (row != null) {
-                    _orders.value = _orders.value?.map { if (it.id == row.id) row else it }
+                    upsertOrder(row)
                 }
                 onResult(row)
             } catch (e: ApiException) {
@@ -291,13 +374,75 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun findOrder(orderId: Long): UserOrder? =
+        _orders.value?.firstOrNull { it.id == orderId }
+
+    private fun upsertOrder(order: UserOrder) {
+        val list = _orders.value.orEmpty()
+        _orders.value = list.map { if (it.id == order.id) order else it }
+            .let { updated ->
+                if (updated.any { it.id == order.id }) updated else updated + order
+            }
+            .sortedByCreatedAtDesc()
+        syncPendingOrderPolling()
+    }
+
+    /** 存在待支付订单时每 3 秒拉取详情并增量更新缓存（不依赖详情页是否打开） */
+    private fun syncPendingOrderPolling() {
+        val hasPending = _orders.value.orEmpty().any { it.status == "PENDING" }
+        if (!hasPending || _token.value == null) {
+            pendingOrderPollJob?.cancel()
+            pendingOrderPollJob = null
+            return
+        }
+        if (pendingOrderPollJob?.isActive == true) return
+
+        pendingOrderPollJob = viewModelScope.launch {
+            while (isActive) {
+                val pendingIds = _orders.value.orEmpty()
+                    .filter { it.status == "PENDING" }
+                    .map { it.id }
+                if (pendingIds.isEmpty()) break
+
+                refreshPendingOrdersFromApi(pendingIds)
+                delay(PENDING_ORDER_POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    private suspend fun refreshPendingOrdersFromApi(orderIds: List<Long>) {
+        val t = _token.value ?: return
+        for (id in orderIds) {
+            try {
+                val row = withContext(Dispatchers.IO) { api.order(t, id) }
+                if (row != null) {
+                    upsertOrderWithoutPollSync(row)
+                }
+            } catch (e: ApiException) {
+                if (handleUnauthorized(e)) return
+            } catch (_: Exception) {
+                // 单次轮询失败忽略，下一轮继续
+            }
+        }
+        syncPendingOrderPolling()
+    }
+
+    private fun upsertOrderWithoutPollSync(order: UserOrder) {
+        val list = _orders.value.orEmpty()
+        _orders.value = list.map { if (it.id == order.id) order else it }
+            .let { updated ->
+                if (updated.any { it.id == order.id }) updated else updated + order
+            }
+            .sortedByCreatedAtDesc()
+    }
+
     fun createOrder(planId: Long, chainId: Long, onSuccess: (UserOrder) -> Unit, onError: (String) -> Unit) {
         val t = _token.value ?: return
         viewModelScope.launch {
             _loading.value = true
             try {
                 val created = withContext(Dispatchers.IO) { api.createOrder(t, planId, chainId) }
-                refreshOrders()
+                upsertOrder(created)
                 onSuccess(created)
             } catch (e: ApiException) {
                 if (handleUnauthorized(e)) return@launch
@@ -310,9 +455,35 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun refreshMine() {
+    fun cancelOrder(
+        orderId: Long,
+        onSuccess: (UserOrder) -> Unit,
+        onError: (String) -> Unit,
+    ) {
         val t = _token.value ?: return
         viewModelScope.launch {
+            _cancellingOrderId.value = orderId
+            try {
+                val row = withContext(Dispatchers.IO) { api.cancelOrder(t, orderId) }
+                upsertOrder(row)
+                onSuccess(row)
+            } catch (e: ApiException) {
+                if (handleUnauthorized(e)) return@launch
+                onError(e.message)
+            } catch (e: Exception) {
+                onError(e.message ?: "取消订单失败")
+            } finally {
+                _cancellingOrderId.value = null
+            }
+        }
+    }
+
+    fun refreshMine() {
+        val t = _token.value ?: return
+        mineRefreshJob?.let { existing ->
+            if (existing.isActive) return
+        }
+        mineRefreshJob = viewModelScope.launch {
             _loading.value = true
             try {
                 val profileRes = runCatching { withContext(Dispatchers.IO) { api.profile(t) } }
@@ -320,12 +491,6 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
 
                 val mRes = runCatching { withContext(Dispatchers.IO) { api.membership(t) } }
                 mRes.onSuccess { _membership.value = it }
-                    .onFailure { e ->
-                        if (e is ApiException && handleUnauthorized(e)) return@launch
-                    }
-
-                val oRes = runCatching { withContext(Dispatchers.IO) { api.orders(t) } }
-                oRes.onSuccess { _orders.value = it }
                     .onFailure { e ->
                         if (e is ApiException && handleUnauthorized(e)) return@launch
                     }
@@ -340,22 +505,66 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshSubscriptionUrl() {
         val t = _token.value ?: return
         viewModelScope.launch {
-            refreshSubscriptionUrlInternal(t)
+            resolveSubscriptionFeedUrl(t, forceRefresh = true)
         }
     }
 
-    private suspend fun refreshSubscriptionUrlInternal(token: String) {
-        val sRes = runCatching { withContext(Dispatchers.IO) { api.subscriptionFeedUrl(token) } }
-        sRes.onSuccess {
-            _subscriptionUrl.value = Labels.normalizeSubscriptionFeedUrl(it.feedUrl)
-        }.onFailure { e ->
-            if (e is ApiException && handleUnauthorized(e)) return
-            _subscriptionUrl.value = null
+    private fun hydrateSubscriptionFeedFromCache() {
+        val cached = subscriptionFeedStore.read()
+        if (cached == null || !subscriptionFeedStore.isCachedEntryValid(cached)) return
+        applySubscriptionFeedLiveData(cached.feedUrl, cached.expiresAt)
+    }
+
+    private fun applySubscriptionFeedLiveData(feedUrl: String?, expiresAt: String?) {
+        _subscriptionUrl.value = feedUrl
+        _subscriptionFeedExpiresAt.value = expiresAt
+    }
+
+    private suspend fun resolveSubscriptionFeedUrl(
+        authToken: String,
+        forceRefresh: Boolean = false,
+    ): String? {
+        if (!forceRefresh) {
+            val cached = subscriptionFeedStore.read()
+            if (cached != null && subscriptionFeedStore.isCachedEntryValid(cached)) {
+                applySubscriptionFeedLiveData(cached.feedUrl, cached.expiresAt)
+                return cached.feedUrl
+            }
         }
+        return refreshSubscriptionUrlFromApi(authToken)
+    }
+
+    private suspend fun refreshSubscriptionUrlInternal(authToken: String) {
+        resolveSubscriptionFeedUrl(authToken, forceRefresh = false)
+    }
+
+    private suspend fun refreshSubscriptionUrlFromApi(authToken: String): String? {
+        val sRes = runCatching { withContext(Dispatchers.IO) { api.subscriptionFeedUrl(authToken) } }
+        return sRes.fold(
+            onSuccess = { response ->
+                val feedUrl = Labels.normalizeSubscriptionFeedUrl(response.feedUrl)
+                val expiresAt = response.expiresAt?.trim()?.takeIf { it.isNotEmpty() }
+                if (!feedUrl.isNullOrBlank() && expiresAt != null) {
+                    subscriptionFeedStore.save(feedUrl, expiresAt)
+                } else {
+                    subscriptionFeedStore.clear()
+                }
+                applySubscriptionFeedLiveData(feedUrl, expiresAt)
+                feedUrl
+            },
+            onFailure = { e ->
+                if (e is ApiException && handleUnauthorized(e)) return null
+                subscriptionFeedStore.clear()
+                applySubscriptionFeedLiveData(null, null)
+                null
+            },
+        )
     }
 
     fun refreshPortalData() {
-        loadCatalog()
+        if (_plans.value.isNullOrEmpty()) {
+            loadCatalog()
+        }
         refreshMine()
     }
 
@@ -363,6 +572,7 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
         sessionStore.token = token
         _token.value = token
         refreshPortalData()
+        loadOrdersCache() // 未登录打开 App 后登录：全量拉一次订单列表
     }
 
 
@@ -479,19 +689,16 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
                     _toastMessage.value = getApplication<Application>().getString(com.openvpn.client.R.string.vpn_no_feed_url)
                     return@launch
                 }
-                val feedUrl = runCatching {
-                    Labels.normalizeSubscriptionFeedUrl(api.subscriptionFeedUrl(t).feedUrl)
-                }.onFailure { e ->
-                    if (e is ApiException && handleUnauthorized(e)) return@launch
-                }.getOrNull()
-                _subscriptionUrl.value = feedUrl
+                val feedUrl = resolveSubscriptionFeedUrl(t)
                 if (feedUrl.isNullOrBlank()) {
                     _toastMessage.value = getApplication<Application>().getString(com.openvpn.client.R.string.vpn_no_feed_url)
                     return@launch
                 }
 
                 val prepResult = withContext(Dispatchers.IO) {
-                    VpnEngineBridge.prepareSubscription(getApplication(), feedUrl)
+                    val feedExpiresAt = _subscriptionFeedExpiresAt.value
+                        ?: subscriptionFeedStore.read()?.expiresAt
+                    VpnEngineBridge.prepareSubscription(getApplication(), feedUrl, feedExpiresAt)
                 }
                 if (prepResult.isFailure) {
                     _toastMessage.value = prepResult.exceptionOrNull()?.message ?: "订阅同步失败"
@@ -585,5 +792,9 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
         logout()
         _authMessage.value = "登录已失效，请重新登录。"
         return true
+    }
+
+    private companion object {
+        private const val PENDING_ORDER_POLL_INTERVAL_MS = 3_000L
     }
 }

@@ -39,10 +39,12 @@ class ShopFragment : Fragment() {
             plans = it
             bindPlanSpinner()
             applyPrefill()
+            updateCreateOrderButton()
         }
         viewModel.chains.observe(viewLifecycleOwner) {
             chains = it
             bindChainSpinner()
+            updateCreateOrderButton()
         }
         viewModel.loading.observe(viewLifecycleOwner) { binding.loadingBar.isVisible = it }
         viewModel.error.observe(viewLifecycleOwner) { err ->
@@ -54,14 +56,19 @@ class ShopFragment : Fragment() {
         viewModel.orders.observe(viewLifecycleOwner) { orders ->
             val pending = orders.any { it.status == "PENDING" }
             binding.pendingBanner.isVisible = pending
-            binding.createOrderButton.isEnabled = !pending && plans.isNotEmpty() && chains.isNotEmpty()
+            updateCreateOrderButton()
         }
         viewModel.shopPrefillPlanId.observe(viewLifecycleOwner) { applyPrefill() }
 
         if (plans.isEmpty() || chains.isEmpty()) {
             viewModel.loadShopCatalog()
         }
-        viewModel.refreshOrders()
+    }
+
+    private fun updateCreateOrderButton() {
+        val pending = viewModel.orders.value.orEmpty().any { it.status == "PENDING" }
+        binding.createOrderButton.isEnabled =
+            !pending && plans.isNotEmpty() && chains.isNotEmpty()
     }
 
     private fun bindPlanSpinner() {

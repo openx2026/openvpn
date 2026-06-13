@@ -12,6 +12,9 @@ val localProperties = Properties().apply {
     }
 }
 
+fun unquoteLocalProperty(value: String): String =
+    value.trim().removeSurrounding("\"").removeSurrounding("'")
+
 fun localProperty(name: String): String? =
     localProperties.getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }
 
@@ -86,6 +89,12 @@ android {
         versionName = "1.0.0"
         multiDexEnabled = true
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        val appSecret = unquoteLocalProperty(localProperty("APP_SECRET") ?: "")
+        buildConfigField(
+            "String",
+            "APP_SECRET",
+            quotedBuildConfigString(appSecret),
+        )
     }
 
     buildTypes {

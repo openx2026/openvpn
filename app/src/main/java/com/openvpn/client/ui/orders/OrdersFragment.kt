@@ -4,21 +4,31 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.appcompat.app.AlertDialog
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.openvpn.client.R
+import com.openvpn.client.api.UserOrder
 import com.openvpn.client.databinding.FragmentOrdersBinding
 import com.openvpn.client.ui.PortalViewModel
+import com.openvpn.client.util.Labels
+import es.dmoral.toasty.Toasty
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 class OrdersFragment : Fragment() {
     private var _binding: FragmentOrdersBinding? = null
     private val binding get() = _binding!!
     private val viewModel: PortalViewModel by activityViewModels()
     private lateinit var adapter: OrdersAdapter
+    private var countdownJob: Job? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentOrdersBinding.inflate(inflater, container, false)
@@ -28,7 +38,10 @@ class OrdersFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        adapter = OrdersAdapter { order -> openDetail(order.id) }
+        adapter = OrdersAdapter(
+            onClick = { order -> openDetail(order) },
+            onCancel = { order -> confirmCancelOrder(order.id) },
+        )
         binding.ordersRecycler.layoutManager = LinearLayoutManager(requireContext())
         binding.ordersRecycler.adapter = adapter
         binding.ordersRecycler.isNestedScrollingEnabled = false
@@ -39,9 +52,13 @@ class OrdersFragment : Fragment() {
             adapter.submit(orders)
             binding.subtitleText.text = "${orders.size} 笔记录"
             binding.emptyText.isVisible = orders.isEmpty()
+            updateCountdownTicker(orders.any { it.status == "PENDING" })
         }
-        viewModel.loading.observe(viewLifecycleOwner) { binding.loadingBar.isVisible = it }
-        viewModel.error.observe(viewLifecycleOwner) { err ->
+        viewModel.cancellingOrderId.observe(viewLifecycleOwner) { id ->
+            adapter.setCancellingOrderId(id)
+        }
+        viewModel.ordersLoading.observe(viewLifecycleOwner) { binding.loadingBar.isVisible = it }
+        viewModel.ordersLoadError.observe(viewLifecycleOwner) { err ->
             val hasError = !err.isNullOrBlank()
             binding.errorText.isVisible = hasError
             binding.retryButton.isVisible = hasError
@@ -49,13 +66,27 @@ class OrdersFragment : Fragment() {
         }
         viewModel.ordersJumpDetailId.observe(viewLifecycleOwner) { id ->
             if (id != null) {
-                openDetail(id)
+                openDetailById(id)
                 viewModel.consumeOrdersJump()
             }
         }
 
         applyScrollBottomInset()
-        viewModel.refreshOrders()
+    }
+
+    private fun updateCountdownTicker(hasPending: Boolean) {
+        if (!hasPending) {
+            countdownJob?.cancel()
+            countdownJob = null
+            return
+        }
+        if (countdownJob?.isActive == true) return
+        countdownJob = viewLifecycleOwner.lifecycleScope.launch {
+            while (isActive) {
+                adapter.tickCountdowns(System.currentTimeMillis())
+                delay(1000L)
+            }
+        }
     }
 
     private fun applyScrollBottomInset() {
@@ -73,16 +104,49 @@ class OrdersFragment : Fragment() {
         ViewCompat.requestApplyInsets(binding.root)
     }
 
-    private fun openDetail(orderId: Long) {
-        viewModel.loadOrderDetail(orderId) { order ->
-            if (order == null) return@loadOrderDetail
+    private fun confirmCancelOrder(orderId: Long) {
+        AlertDialog.Builder(requireContext())
+            .setMessage(getString(R.string.cancel_order_confirm))
+            .setPositiveButton(getString(R.string.action_confirm)) { _, _ ->
+                viewModel.cancelOrder(
+                    orderId,
+                    onSuccess = {
+                        Toasty.success(requireContext(), Labels.statusLabel("CANCELLED")).show()
+                    },
+                    onError = { msg ->
+                        Toasty.error(requireContext(), msg).show()
+                    },
+                )
+            }
+            .setNegativeButton(getString(R.string.action_cancel), null)
+            .show()
+    }
+
+    private fun openDetail(order: UserOrder) {
+        // 创建订单后切 Tab 与 replace 同事务周期内直接 show 可能触发 FragmentManager 异常
+        view?.post {
+            if (!isAdded) return@post
             OrderDetailBottomSheet().apply {
                 this.order = order
             }.show(parentFragmentManager, OrderDetailBottomSheet.TAG)
         }
     }
 
+    private fun openDetailById(orderId: Long) {
+        val cached = viewModel.findOrder(orderId)
+        if (cached != null) {
+            openDetail(cached)
+            return
+        }
+        viewModel.loadOrderDetail(orderId) { order ->
+            if (order == null || !isAdded) return@loadOrderDetail
+            openDetail(order)
+        }
+    }
+
     override fun onDestroyView() {
+        countdownJob?.cancel()
+        countdownJob = null
         super.onDestroyView()
         _binding = null
     }

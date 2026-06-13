@@ -525,27 +525,33 @@ object AngConfigManager {
      * @return Subscription update result.
      */
     fun updateConfigViaSub(it: SubscriptionCache): SubscriptionUpdateResult {
-        try {
-            // Check if disabled
-            if (!it.subscription.enabled) {
-                return SubscriptionUpdateResult(skipCount = 1)
-            }
+        val configText = fetchSubscriptionContent(it)
+        if (configText.isEmpty()) {
+            return SubscriptionUpdateResult(failureCount = 1)
+        }
+        return applySubscriptionContent(it, configText)
+    }
 
-            // Validate subscription info
+    /** HTTP GET subscription URL; returns empty body when skipped or failed. */
+    fun fetchSubscriptionContent(it: SubscriptionCache): String {
+        try {
+            if (!it.subscription.enabled) {
+                return ""
+            }
             if (TextUtils.isEmpty(it.guid)
                 || TextUtils.isEmpty(it.subscription.remarks)
                 || TextUtils.isEmpty(it.subscription.url)
             ) {
-                return SubscriptionUpdateResult(skipCount = 1)
+                return ""
             }
 
             val url = HttpUtil.toIdnUrl(it.subscription.url)
             if (!Utils.isValidUrl(url)) {
-                return SubscriptionUpdateResult(failureCount = 1)
+                return ""
             }
             if (!it.subscription.allowInsecureUrl) {
                 if (!Utils.isValidSubUrl(url)) {
-                    return SubscriptionUpdateResult(failureCount = 1)
+                    return ""
                 }
             }
             LogUtil.i(AppConfig.TAG, url)
@@ -562,8 +568,8 @@ object AngConfigManager {
                         timeout = 15000,
                         httpPort = httpPort,
                         proxyUsername = proxyUsername,
-                        proxyPassword = proxyPassword
-                    )
+                        proxyPassword = proxyPassword,
+                    ),
                 )
             } catch (e: Exception) {
                 LogUtil.e(AppConfig.ANG_PACKAGE, "Update subscription: proxy not ready or other error", e)
@@ -574,13 +580,32 @@ object AngConfigManager {
                     HttpUtil.getUrlContentWithUserAgent(
                         UrlContentRequest(
                             url = url,
-                            userAgent = userAgent
-                        )
+                            userAgent = userAgent,
+                        ),
                     )
                 } catch (e: Exception) {
                     LogUtil.e(AppConfig.TAG, "Update subscription: Failed to get URL content with user agent", e)
                     ""
                 }
+            }
+            return configText
+        } catch (e: Exception) {
+            LogUtil.e(AppConfig.TAG, "Failed to fetch subscription content", e)
+            return ""
+        }
+    }
+
+    /** Parse subscription body into local configs (no network). */
+    fun applySubscriptionContent(it: SubscriptionCache, configText: String): SubscriptionUpdateResult {
+        try {
+            if (!it.subscription.enabled) {
+                return SubscriptionUpdateResult(skipCount = 1)
+            }
+            if (TextUtils.isEmpty(it.guid)
+                || TextUtils.isEmpty(it.subscription.remarks)
+                || TextUtils.isEmpty(it.subscription.url)
+            ) {
+                return SubscriptionUpdateResult(skipCount = 1)
             }
             if (configText.isEmpty()) {
                 return SubscriptionUpdateResult(failureCount = 1)
@@ -593,14 +618,12 @@ object AngConfigManager {
                 LogUtil.i(AppConfig.TAG, "Subscription updated: ${it.subscription.remarks}, $count configs")
                 return SubscriptionUpdateResult(
                     configCount = count,
-                    successCount = 1
+                    successCount = 1,
                 )
-            } else {
-                // Got response but no valid configs parsed
-                return SubscriptionUpdateResult(failureCount = 1)
             }
+            return SubscriptionUpdateResult(failureCount = 1)
         } catch (e: Exception) {
-            LogUtil.e(AppConfig.TAG, "Failed to update config via subscription", e)
+            LogUtil.e(AppConfig.TAG, "Failed to apply subscription content", e)
             return SubscriptionUpdateResult(failureCount = 1)
         }
     }

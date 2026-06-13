@@ -54,10 +54,6 @@ class HomeFragment : Fragment() {
         viewModel.orders.observe(viewLifecycleOwner) { orders ->
             binding.pendingBanner.isVisible = orders.any { it.status == "PENDING" }
         }
-
-        if (viewModel.plans.value.isNullOrEmpty()) {
-            viewModel.loadCatalog()
-        }
     }
 
     private fun setupFeatureChips() {

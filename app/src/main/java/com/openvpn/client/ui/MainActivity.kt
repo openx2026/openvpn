@@ -94,9 +94,6 @@ class MainActivity : AppCompatActivity() {
 
         binding.bottomBarContainer.isVisible = true
         viewModel.selectTab(viewModel.currentTab.value ?: PortalTab.HOME)
-        if (viewModel.plans.value.isNullOrEmpty()) {
-            viewModel.loadCatalog()
-        }
         updateVpnButton()
         updateNavSelection(viewModel.currentTab.value ?: PortalTab.HOME)
         registerVpnStateReceiver()
