@@ -1,0 +1,87 @@
+package com.openvpn.client.ui.orders
+
+import android.os.Bundle
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import androidx.core.view.isVisible
+import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import com.openvpn.client.R
+import com.openvpn.client.api.UserOrder
+import com.openvpn.client.databinding.BottomSheetOrderDetailBinding
+import com.openvpn.client.databinding.ViewKvRowBinding
+import com.openvpn.client.util.ClipboardUtil
+import com.openvpn.client.util.DateFormats
+import com.openvpn.client.util.Labels
+import com.openvpn.client.util.QrUtil
+import es.dmoral.toasty.Toasty
+
+class OrderDetailBottomSheet : BottomSheetDialogFragment() {
+    private var _binding: BottomSheetOrderDetailBinding? = null
+    private val binding get() = _binding!!
+
+    var order: UserOrder? = null
+
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+        _binding = BottomSheetOrderDetailBinding.inflate(inflater, container, false)
+        return binding.root
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        val o = order ?: return dismiss()
+
+        binding.detailOrderNo.text = o.orderNo
+        binding.detailStatus.text = Labels.statusLabel(o.status)
+        binding.detailStatus.setBackgroundColor(
+            when (o.status) {
+                "PENDING" -> android.graphics.Color.parseColor("#F59E0B")
+                "PAID" -> android.graphics.Color.parseColor("#10B981")
+                else -> android.graphics.Color.parseColor("#9CA3AF")
+            },
+        )
+        bindKv(binding.kvPlan, "套餐", o.subscriptionPlan.name)
+        bindKv(binding.kvAmount, "应付 USDT", o.amount.toString())
+        bindKv(binding.kvChain, "支付链", "${Labels.chainHint(o.chainId ?: 0)} (${o.chainId ?: "—"})")
+        bindKv(binding.kvExpires, "支付截止", DateFormats.formatLocal(o.expiredAt))
+
+        val tx = o.txHash?.trim().orEmpty()
+        binding.txHashText.text = if (tx.isEmpty()) getString(R.string.tx_hash_empty) else tx
+
+        val pending = o.status == "PENDING"
+        binding.pendingPaymentSection.isVisible = pending
+        if (pending) {
+            binding.toAddressText.text = o.toAddress
+            QrUtil.encode(o.toAddress, 512)?.let { binding.qrImage.setImageBitmap(it) }
+            binding.copyAddressButton.setOnClickListener {
+                if (ClipboardUtil.copy(requireContext(), "address", o.toAddress)) {
+                    showTip(getString(R.string.copied))
+                } else {
+                    showTip(getString(R.string.copy_failed))
+                }
+            }
+        }
+
+        binding.closeButton.setOnClickListener { dismiss() }
+    }
+
+    private fun bindKv(kv: ViewKvRowBinding, label: String, value: String) {
+        kv.kvLabel.text = label
+        kv.kvValue.text = value
+    }
+
+    private fun showTip(msg: String) {
+        binding.tipText.isVisible = true
+        binding.tipText.text = msg
+        Toasty.info(requireContext(), msg).show()
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
+    }
+
+    companion object {
+        const val TAG = "OrderDetailBottomSheet"
+    }
+}

@@ -1,0 +1,35 @@
+<resources>
+    <style name="Theme.OpenVpn" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/portal_primary</item>
+        <item name="colorPrimaryDark">@color/portal_primary_dark</item>
+        <item name="android:statusBarColor">@color/portal_background</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">@color/portal_surface</item>
+        <item name="android:windowBackground">@color/portal_background</item>
+    </style>
+
+    <style name="PortalCard" parent="Widget.Material3.CardView.Elevated">
+        <item name="cardBackgroundColor">@color/portal_surface</item>
+        <item name="cardCornerRadius">12dp</item>
+        <item name="cardElevation">1dp</item>
+    </style>
+
+    <style name="PortalSectionLabel">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/portal_text_secondary</item>
+        <item name="android:letterSpacing">0.05</item>
+    </style>
+
+    <style name="PortalHeroTitle">
+        <item name="android:textSize">24sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/portal_text_primary</item>
+    </style>
+
+    <style name="PortalMuted">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/portal_text_secondary</item>
+        <item name="android:lineSpacingMultiplier">1.35</item>
+    </style>
+</resources>

@@ -1,0 +1,16 @@
+*.iml
+.gradle/
+.idea/
+local.properties
+*.keystore
+*.jks
+.DS_Store
+build/
+release-artifacts/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+vpn-engine/libs/*.aar
+!vpn-engine/libs/.gitkeep

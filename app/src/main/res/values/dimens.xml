@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 底部 Tab + 中间 VPN 按钮占用高度，避免「我的」页最后一块滚不到 -->
+    <dimen name="portal_bottom_bar_scroll_clearance">128dp</dimen>
+</resources>

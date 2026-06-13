@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_portal_bottom_bar"
+    android:clipChildren="false"
+    android:clipToPadding="false"
+    android:gravity="bottom"
+    android:orientation="horizontal"
+    android:clickable="false"
+    android:focusable="false"
+    android:paddingTop="22dp"
+    android:paddingBottom="8dp">
+
+    <include
+        android:id="@+id/nav_home"
+        layout="@layout/view_portal_nav_item" />
+
+    <include
+        android:id="@+id/nav_shop"
+        layout="@layout/view_portal_nav_item" />
+
+    <FrameLayout
+        android:id="@+id/vpn_connect_slot"
+        android:layout_width="76dp"
+        android:layout_height="76dp"
+        android:clipChildren="false"
+        android:clipToPadding="false">
+
+        <View
+            android:id="@+id/vpn_connect_ring"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/bg_vpn_button_ring" />
+
+        <FrameLayout
+            android:id="@+id/vpn_connect_button"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_vpn_button_idle"
+            android:clickable="true"
+            android:contentDescription="@string/vpn_fab_desc"
+            android:elevation="6dp"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackgroundBorderless"
+            android:stateListAnimator="@null">
+
+            <ImageView
+                android:id="@+id/vpn_connect_icon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_vpn_power" />
+
+            <TextView
+                android:id="@+id/vpn_connect_delay"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:lineSpacingExtra="-2dp"
+                android:lineSpacingMultiplier="0.85"
+                android:maxLines="2"
+                android:textAlignment="center"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                tools:text="128&#10;ms" />
+        </FrameLayout>
+    </FrameLayout>
+
+    <include
+        android:id="@+id/nav_orders"
+        layout="@layout/view_portal_nav_item" />
+
+    <include
+        android:id="@+id/nav_mine"
+        layout="@layout/view_portal_nav_item" />
+</LinearLayout>
