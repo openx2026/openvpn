@@ -83,6 +83,8 @@
 
     <string name="label_my_invite_code">我的邀请码</string>
     <string name="invite_code_hint">通过专属邀请码邀请好友注册，满足活动条件时可获得会员时长奖励。</string>
+    <string name="campaign_rules_summary">活动说明</string>
+    <string name="campaign_rules_empty">当前暂无进行中的活动，请留意后续公告。</string>
     <string name="invite_code_pending">邀请码生成中…</string>
     <string name="action_copy_invite_code">复制邀请码</string>
     <string name="order_detail">订单详情</string>

@@ -113,6 +113,8 @@ class PortalApi(
 
     suspend fun catalogChains(): List<CatalogChain> = get("/membership/catalog/chains")
 
+    suspend fun catalogCampaigns(): List<CatalogCampaign> = get("/membership/catalog/campaigns")
+
     suspend fun orders(token: String): List<UserOrder> = get("/membership/orders", token)
 
     suspend fun order(token: String, id: Long): UserOrder? {

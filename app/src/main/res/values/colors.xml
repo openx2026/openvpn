@@ -16,4 +16,8 @@
     <color name="portal_status_off">#9CA3AF</color>
     <color name="portal_hero_text">#FFFFFF</color>
     <color name="portal_hero_subtext">#DDEAFE</color>
+    <color name="portal_rules_surface">#F8F9FB</color>
+    <color name="portal_rules_border">#E5E7EB</color>
+    <color name="portal_rules_item_bg">#F0F2F5</color>
+    <color name="portal_rules_divider">#14000000</color>
 </resources>

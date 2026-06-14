@@ -6,6 +6,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.openvpn.client.api.ApiException
+import com.openvpn.client.api.CatalogCampaign
 import com.openvpn.client.api.CatalogChain
 import com.openvpn.client.api.CatalogPlan
 import com.openvpn.client.api.PortalApi
@@ -69,6 +70,9 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _membership = MutableLiveData<UserMembershipSnapshot?>(null)
     val membership: LiveData<UserMembershipSnapshot?> = _membership
+
+    private val _activeCampaigns = MutableLiveData<List<CatalogCampaign>>(emptyList())
+    val activeCampaigns: LiveData<List<CatalogCampaign>> = _activeCampaigns
 
     private val _subscriptionUrl = MutableLiveData<String?>(null)
     val subscriptionUrl: LiveData<String?> = _subscriptionUrl
@@ -494,6 +498,11 @@ class PortalViewModel(app: Application) : AndroidViewModel(app) {
                     .onFailure { e ->
                         if (e is ApiException && handleUnauthorized(e)) return@launch
                     }
+
+                val campaignsRes = runCatching { withContext(Dispatchers.IO) { api.catalogCampaigns() } }
+                campaignsRes.onSuccess { list ->
+                    _activeCampaigns.value = list.sortedBy { it.id }
+                }
 
                 refreshSubscriptionUrlInternal(t)
             } finally {

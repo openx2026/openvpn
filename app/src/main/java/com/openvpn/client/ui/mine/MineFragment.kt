@@ -6,14 +6,18 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import com.openvpn.client.R
+import com.openvpn.client.api.CatalogCampaign
 import com.openvpn.client.api.UserMembershipInfo
 import com.openvpn.client.databinding.FragmentMineBinding
+import com.openvpn.client.databinding.ViewCampaignRuleItemBinding
 import com.openvpn.client.databinding.ViewKvRowBinding
 import com.openvpn.client.ui.PortalViewModel
 import com.openvpn.client.util.ClipboardUtil
@@ -24,6 +28,7 @@ class MineFragment : Fragment() {
     private var _binding: FragmentMineBinding? = null
     private val binding get() = _binding!!
     private val viewModel: PortalViewModel by activityViewModels()
+    private var campaignRulesExpanded = false
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentMineBinding.inflate(inflater, container, false)
@@ -37,6 +42,7 @@ class MineFragment : Fragment() {
         binding.logoutButton.setOnClickListener { viewModel.logout() }
         binding.copyInviteButton.setOnClickListener { copyInviteCode() }
         binding.inviteButton.setOnClickListener { shareInvite() }
+        binding.campaignRulesToggle.setOnClickListener { toggleCampaignRules() }
 
         viewModel.profile.observe(viewLifecycleOwner) { profile ->
             val name = profile?.username.orEmpty().ifBlank { "—" }
@@ -49,6 +55,9 @@ class MineFragment : Fragment() {
         }
         viewModel.membership.observe(viewLifecycleOwner) { snapshot ->
             renderMembership(snapshot?.membership, snapshot)
+        }
+        viewModel.activeCampaigns.observe(viewLifecycleOwner) { campaigns ->
+            renderCampaignRules(campaigns)
         }
 
         applyScrollBottomInset()
@@ -81,6 +90,57 @@ class MineFragment : Fragment() {
         binding.inviteButton.isEnabled = ready
         binding.copyInviteButton.alpha = if (ready) 1f else 0.5f
         binding.inviteButton.alpha = if (ready) 1f else 0.5f
+    }
+
+    private fun toggleCampaignRules() {
+        campaignRulesExpanded = !campaignRulesExpanded
+        updateCampaignRulesExpandedUi()
+    }
+
+    private fun updateCampaignRulesExpandedUi() {
+        binding.campaignRulesContent.isVisible = campaignRulesExpanded
+        binding.campaignRulesDivider.isVisible = campaignRulesExpanded
+        binding.campaignRulesChevron.animate()
+            .rotation(if (campaignRulesExpanded) 180f else 0f)
+            .setDuration(150)
+            .start()
+    }
+
+    private fun renderCampaignRules(campaigns: List<CatalogCampaign>) {
+        val items = campaigns
+            .sortedBy { it.id }
+            .filter { it.remark?.trim().orEmpty().isNotEmpty() }
+
+        binding.campaignRulesContent.removeAllViews()
+        val inflater = LayoutInflater.from(requireContext())
+
+        if (items.isEmpty()) {
+            val empty = TextView(requireContext()).apply {
+                text = getString(R.string.campaign_rules_empty)
+                setTextColor(requireContext().getColor(R.color.portal_text_secondary))
+                textSize = 13f
+                setLineSpacing(0f, 1.45f)
+                setBackgroundResource(R.drawable.bg_campaign_rules_item)
+                val pad = (10 * resources.displayMetrics.density).toInt()
+                setPadding(pad, pad, pad, pad)
+            }
+            binding.campaignRulesContent.addView(empty)
+        } else {
+            items.forEachIndexed { index, campaign ->
+                val itemBinding = ViewCampaignRuleItemBinding.inflate(inflater, binding.campaignRulesContent, false)
+                itemBinding.campaignRuleText.text = campaign.remark!!.trim()
+                if (index == 0) {
+                    itemBinding.root.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                        topMargin = 0
+                    }
+                }
+                binding.campaignRulesContent.addView(itemBinding.root)
+            }
+        }
+
+        binding.campaignRulesChevron.rotation = if (campaignRulesExpanded) 180f else 0f
+        binding.campaignRulesContent.isVisible = campaignRulesExpanded
+        binding.campaignRulesDivider.isVisible = campaignRulesExpanded
     }
 
     private fun copyInviteCode() {

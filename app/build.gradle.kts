@@ -109,10 +109,10 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             buildConfigField("String", "API_BASE_URL", quotedBuildConfigString("https://www.openshopx.xyz/api"))
-            // 真机分发：不打包 x86/x86_64（模拟器 ABI），约可减少 60MB+ native 体积
+            // 真机分发：仅 arm64-v8a（不打包 armeabi-v7a / x86 / x86_64）
             ndk {
                 abiFilters.clear()
-                abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
+                abiFilters.addAll(listOf("arm64-v8a"))
             }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

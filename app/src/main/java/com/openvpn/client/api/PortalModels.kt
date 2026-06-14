@@ -38,6 +38,14 @@ data class CatalogChain(
     @SerializedName("usdtDecimals") val usdtDecimals: Int,
 )
 
+data class CatalogCampaign(
+    val id: Long,
+    val name: String,
+    @SerializedName("campaignType") val campaignType: String,
+    @SerializedName("rewardMembershipDays") val rewardMembershipDays: Int = 0,
+    val remark: String? = null,
+)
+
 data class OrderPlanSummary(
     val id: Long,
     val name: String,
